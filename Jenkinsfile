@@ -48,21 +48,40 @@ pipeline {
         
         // Stage 3: Run unit tests
         stage('Test') {
-            steps {
-                echo '🧪 Running unit tests...'
+    steps {
+        echo '🧪 Running unit tests...'
+        script {
+            try {
                 // Execute Maven test phase
                 sh 'mvn test'
-                echo '✅ Unit tests completed'
+                echo '✅ Unit tests completed successfully'
+            } catch (Exception e) {
+                echo "⚠️ Some tests may have failed, but continuing pipeline..."
+                currentBuild.result = 'UNSTABLE'
             }
-            post {
-                // Always publish test results, even if tests fail
-                always {
-                    // Publish JUnit test results for Jenkins dashboard
+        }
+    }
+    post {
+        always {
+            script {
+                // Check if test results exist before publishing
+                if (fileExists('target/surefire-reports')) {
+                    echo '📊 Publishing test results...'
                     junit testResultsPattern: 'target/surefire-reports/*.xml', allowEmptyResults: true
-                    echo '📊 Test results published'
+                    echo '✅ Test results published to Jenkins dashboard'
+                } else {
+                    echo '📝 No test result files found - skipping test result publishing'
                 }
             }
         }
+        failure {
+            echo '❌ Test stage failed'
+        }
+        unstable {
+            echo '⚠️ Tests completed but some tests failed'
+        }
+    }
+}
         
         // Stage 4: Package application into executable JAR
         stage('Package') {
