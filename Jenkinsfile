@@ -58,7 +58,7 @@ pipeline {
                 // Always publish test results, even if tests fail
                 always {
                     // Publish JUnit test results for Jenkins dashboard
-                    publishTestResults testResultsPattern: 'target/surefire-reports/*.xml'
+                    junit testResultsPattern: 'target/surefire-reports/*.xml', allowEmptyResults: true
                     echo '📊 Test results published'
                 }
             }
