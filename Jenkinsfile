@@ -15,7 +15,7 @@ pipeline {
         EMAIL_RECIPIENT = 'pswathi.kkd@gmail.com'
         
         // 🖥️ UPDATE: Replace with your actual EC2 instance details
-        EC2_HOST = 'ec2-3-89-153-73.compute-1.amazonaws.com'  // Replace with your EC2 public DNS or IP
+        EC2_HOST = 'ec2-XX-XX-XX-XX.compute-1.amazonaws.com'  // Replace with your EC2 public DNS or IP
         EC2_USER = 'ec2-user'  // Default for Amazon Linux, change if different
         
         // 🚀 Application Configuration
@@ -71,9 +71,8 @@ pipeline {
             steps {
                 echo '🚀 Deploying JAR file to AWS EC2...'
                 script {
-                    // 🔧 MODIFY: Update the SSH key credential ID to match your Jenkins configuration
                     withCredentials([sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',  // 🔧 UPDATE: Your SSH key credential ID in Jenkins
+                        credentialsId: 'ec2-ssh-key',
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     )]) {
@@ -84,53 +83,56 @@ pipeline {
                         chmod 600 $SSH_KEY
                         
                         # Create directories on EC2
-                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "
-                            mkdir -p ${DEPLOY_DIR}
-                            mkdir -p ${LOG_DIR}
-                        "
+                        echo "📁 Creating directories on EC2..."
+                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "mkdir -p ${DEPLOY_DIR} && mkdir -p ${LOG_DIR} && echo 'Directories created'"
                         
                         echo "📦 Copying JAR file to EC2..."
-                        # Copy JAR file to EC2
-                        scp -i $SSH_KEY -o StrictHostKeyChecking=no target/*.jar ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/${JAR_NAME}
+                        # Copy JAR file to EC2 (note: actual JAR name is different from expected)
+                        scp -i $SSH_KEY -o StrictHostKeyChecking=no target/*.jar ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/app.jar
                         
-                        echo "🔧 Setting up and starting application on EC2..."
-                        # Deploy and start application on EC2
-                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "
-                            # Stop existing application (if running)
-                            echo '🛑 Stopping existing application...'
-                            pkill -f 'java.*${APP_NAME}' || true
-                            sleep 5
-                            
-                            # Install Java 17 if not present
-                            echo '☕ Checking Java installation...'
-                            if ! java -version 2>&1 | grep -q '17'; then
-                                echo '📥 Installing Java 17...'
-                                sudo yum update -y
-                                sudo yum install java-17-amazon-corretto -y
-                            fi
-                            
-                            # Start application
-                            echo '▶️ Starting Spring Boot application...'
-                            cd ${DEPLOY_DIR}
-                            nohup java -jar ${JAR_NAME} \\
-                                --server.port=${APPLICATION_PORT} \\
-                                --logging.file.name=${LOG_DIR}/application.log \\
-                                > ${LOG_DIR}/startup.log 2>&1 &
-                            
-                            echo '⏳ Waiting for application to start...'
-                            sleep 30
-                            
-                            # Check if application started successfully
-                            if pgrep -f 'java.*${APP_NAME}' > /dev/null; then
-                                echo '✅ Application started successfully'
-                                echo 'Process ID:' \$(pgrep -f 'java.*${APP_NAME}')
-                            else
-                                echo '❌ Application failed to start'
-                                echo 'Checking logs...'
-                                tail -20 ${LOG_DIR}/startup.log
-                                exit 1
-                            fi
-                        "
+                        echo "🔧 Deploying application on EC2..."
+                        # Create deployment script on EC2
+                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "cat > ${DEPLOY_DIR}/deploy.sh << 'EOF'
+#!/bin/bash
+echo '🛑 Stopping existing application...'
+pkill -f 'java.*app.jar' || true
+sleep 5
+
+echo '☕ Checking Java installation...'
+if ! java -version 2>&1 | grep -q '17'; then
+    echo '📥 Installing Java 17...'
+    sudo yum update -y
+    sudo yum install java-17-amazon-corretto -y
+else
+    echo '✅ Java 17 already installed'
+fi
+
+echo '▶️ Starting Spring Boot application...'
+cd ${DEPLOY_DIR}
+nohup java -jar app.jar --server.port=${APPLICATION_PORT} --logging.file.name=${LOG_DIR}/application.log > ${LOG_DIR}/startup.log 2>&1 &
+
+echo '⏳ Waiting for application to start...'
+sleep 30
+
+echo 'Checking if application started...'
+if pgrep -f 'java.*app.jar' > /dev/null; then
+    PID=\$(pgrep -f 'java.*app.jar')
+    echo \"✅ Application started successfully with PID: \$PID\"
+    echo \"📋 Recent startup logs:\"
+    tail -10 ${LOG_DIR}/startup.log
+else
+    echo '❌ Application failed to start'
+    echo '📋 Startup logs:'
+    cat ${LOG_DIR}/startup.log 2>/dev/null || echo 'No startup log found'
+    echo '📋 Application logs:'
+    tail -20 ${LOG_DIR}/application.log 2>/dev/null || echo 'No application log found'
+    exit 1
+fi
+EOF"
+                        
+                        echo "▶️ Executing deployment script..."
+                        # Execute the deployment script
+                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "chmod +x ${DEPLOY_DIR}/deploy.sh && ${DEPLOY_DIR}/deploy.sh"
                         
                         echo "✅ Deployment completed successfully"
                         '''
