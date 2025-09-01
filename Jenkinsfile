@@ -15,7 +15,7 @@ pipeline {
         EMAIL_RECIPIENT = 'pswathi.kkd@gmail.com'
         
         // 🖥️ UPDATE: Replace with your actual EC2 instance details
-        EC2_HOST = 'ec2-XX-XX-XX-XX.compute-1.amazonaws.com'  // Replace with your EC2 public DNS or IP
+        EC2_HOST = 'ec2-3-89-153-73.compute-1.amazonaws.com'  // Replace with your EC2 public DNS or IP
         EC2_USER = 'ec2-user'  // Default for Amazon Linux, change if different
         
         // 🚀 Application Configuration
