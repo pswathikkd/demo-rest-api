@@ -47,20 +47,19 @@ pipeline {
         }
         
         // Stage 3: Run unit tests
-        stage('Test') {
-		    stage('Test') {
-			    steps {
-			        echo '🧪 Running unit tests...'
-			        // Execute Maven test phase
-			        sh 'mvn test'
-			        echo '✅ Unit tests completed'
-			    }
-			    post {
-			        always {
-			            echo '📊 Test stage completed'
-			        }
-			    }
-			}
+	    stage('Test') {
+		    steps {
+		        echo '🧪 Running unit tests...'
+		        // Execute Maven test phase
+		        sh 'mvn test'
+		        echo '✅ Unit tests completed'
+		    }
+		    post {
+		        always {
+		            echo '📊 Test stage completed'
+		        }
+		    }
+		}
         
         // Stage 4: Package application into executable JAR
         stage('Package') {
