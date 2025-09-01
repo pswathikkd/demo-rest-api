@@ -15,7 +15,7 @@ pipeline {
         EMAIL_RECIPIENT = 'pswathi.kkd@gmail.com'
         
         // 🖥️ UPDATE: Replace with your actual EC2 instance details
-        EC2_HOST = 'ec2-3-89-153-73.compute-1.amazonaws.com'  // Replace with your EC2 public DNS or IP
+        EC2_HOST = '3.89.153.73'  // Updated with your EC2 public IP
         EC2_USER = 'ec2-user'  // Default for Amazon Linux, change if different
         
         // 🚀 Application Configuration
@@ -150,48 +150,37 @@ EOF"
                     echo '⏳ Waiting for application to be fully ready...'
                     sleep(20)
                     
-                    // Test application endpoints
+                    // Test your actual controller endpoints
                     sh '''
                     echo "🔍 Testing application endpoints..."
                     
-                    # Test welcome endpoint
-                    echo "Testing /api/v1/welcome endpoint..."
-                    if curl -f -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/welcome; then
-                        echo "✅ Welcome endpoint working"
+                    # Test your home endpoint (root path)
+                    echo "Testing / (home) endpoint..."
+                    if curl -f -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/; then
+                        echo "✅ Home endpoint working"
+                        echo "Response: $(curl -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/)"
                     else
-                        echo "❌ Welcome endpoint failed"
+                        echo "❌ Home endpoint failed"
+                        echo "Checking if application is running..."
+                        
+                        # Debug: Check if application is running
+                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "
+                            echo 'Checking running Java processes:'
+                            pgrep -f 'java' || echo 'No Java processes found'
+                            
+                            echo 'Checking application logs:'
+                            tail -20 ${LOG_DIR}/startup.log 2>/dev/null || echo 'No startup log'
+                            tail -20 ${LOG_DIR}/application.log 2>/dev/null || echo 'No application log'
+                            
+                            echo 'Checking port 8080:'
+                            netstat -tulpn | grep 8080 || echo 'Port 8080 not in use'
+                        " 2>/dev/null || echo "Could not connect to EC2 for debugging"
+                        
                         exit 1
                     fi
                     
-                    # Test info endpoint
-                    echo "Testing /api/v1/info endpoint..."
-                    if curl -f -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/info; then
-                        echo "✅ Info endpoint working"
-                    else
-                        echo "❌ Info endpoint failed"
-                        exit 1
-                    fi
-                    
-                    # Test users endpoint
-                    echo "Testing /api/v1/users endpoint..."
-                    if curl -f -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/users; then
-                        echo "✅ Users endpoint working"
-                    else
-                        echo "❌ Users endpoint failed"
-                        exit 1
-                    fi
-                    
-                    # Test version endpoint
-                    echo "Testing /api/v1/version endpoint..."
-                    if curl -f -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/version; then
-                        echo "✅ Version endpoint working"
-                    else
-                        echo "❌ Version endpoint failed"
-                        exit 1
-                    fi
-                    
-                    echo "🎉 All endpoints are working correctly!"
-                    echo "🌐 Application is accessible at: http://${EC2_HOST}:${APPLICATION_PORT}"
+                    echo "🎉 Application verification completed successfully!"
+                    echo "🌐 Your application is accessible at: http://${EC2_HOST}:${APPLICATION_PORT}/"
                     '''
                 }
             }
@@ -232,12 +221,10 @@ EOF"
                         
                         <h3>🌐 Application Access:</h3>
                         <ul>
-                            <li><strong>Welcome:</strong> <a href="http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/welcome">http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/welcome</a></li>
-                            <li><strong>Users:</strong> <a href="http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/users">http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/users</a></li>
-                            <li><strong>Version:</strong> <a href="http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/version">http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/version</a></li>
+                            <li><strong>Home:</strong> <a href="http://${EC2_HOST}:${APPLICATION_PORT}/">http://${EC2_HOST}:${APPLICATION_PORT}/</a></li>
                         </ul>
                         
-                        <p>✅ All endpoints have been verified and are working correctly.</p>
+                        <p>✅ Your application endpoint has been verified and is working correctly.</p>
                         """
                     )
                     echo "📧 Success email sent to ${EMAIL_RECIPIENT}"
