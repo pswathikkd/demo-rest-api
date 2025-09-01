@@ -19,7 +19,7 @@ pipeline {
         EC2_USER = 'ec2-user'  // Default for Amazon Linux, change if different
         
         // 🚀 Application Configuration
-        APPLICATION_PORT = '8282'
+        APPLICATION_PORT = '8080'
         APP_NAME = 'demo-rest-api'
         JAR_NAME = 'demo-rest-api-1.0.0.jar'
         
@@ -172,8 +172,8 @@ EOF"
                             tail -20 ${LOG_DIR}/startup.log 2>/dev/null || echo 'No startup log'
                             tail -20 ${LOG_DIR}/application.log 2>/dev/null || echo 'No application log'
                             
-                            echo 'Checking port 8282:'
-                            netstat -tulpn | grep 8282 || echo 'Port 8282 not in use'
+                            echo 'Checking port 8080:'
+                            netstat -tulpn | grep 8080 || echo 'Port 8080 not in use'
                         " 2>/dev/null || echo "Could not connect to EC2 for debugging"
                         
                         exit 1
@@ -263,7 +263,7 @@ EOF"
                         <ul>
                             <li>SSH connection to EC2 instance</li>
                             <li>Java installation on EC2</li>
-                            <li>Port 8282 availability</li>
+                            <li>Port 8080 availability</li>
                             <li>Security group settings</li>
                         </ul>
                         """
