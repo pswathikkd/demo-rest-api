@@ -108,8 +108,40 @@ pipeline {
                 }
             }
         }
+        // Otherwise for Stage 6: we may do this below to skip Docker
+        // stage('Push to ECR') {
+        //    when {
+        //        expression { return false } // Temporarily disable ECR push
+        //    }
+        //    steps {
+        //        echo '☁️ ECR push disabled for testing...'
+        //    }
+        // }
         
         // Stage 7: Deploy application to AWS EC2
+        stage('Deploy to EC2') {
+		    steps {
+		        echo 'Deploying application to AWS EC2...'
+		        script {
+		            withAWS(credentials: 'aws-credentials', region: "${AWS_DEFAULT_REGION}") {
+		                withCredentials([file(credentialsId: 'ec2-ssh-key-file', variable: 'SSH_KEY_FILE')]) {
+		                    sh '''
+		                    # Set proper permissions for SSH key
+		                    chmod 600 $SSH_KEY_FILE
+		                    
+		                    # Deploy using direct SSH
+		                    ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no ec2-user@${EC2_HOST} "
+		                        echo 'Deploying application...'
+		                        # ... deployment commands ...
+		                    "
+		                    '''
+		                }
+		            }
+		        }
+		    }
+		}
+        
+        /* Alternative - because I am using SSH with Key file 
         stage('Deploy to EC2') {
             steps {
                 echo '🚀 Deploying application to AWS EC2...'
@@ -170,6 +202,45 @@ pipeline {
                 }
             }
         }
+        Remove upto here because I am using SSH with key file */
+        
+        // Stage 7: Deploy JAR directly to EC2 (alternative deployment)
+        /* From here ... This is applicable for JAR instead of Docker 
+        stage('Deploy JAR to EC2') {
+            steps {
+                echo '🚀 Deploying JAR file directly to AWS EC2...'
+                script {
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_DEFAULT_REGION}") {
+                        sshagent(['ec2-ssh-key']) {
+                            sh '''
+                            echo "📦 Copying JAR file to EC2..."
+                            
+                            # Copy JAR file to EC2
+                            scp -o StrictHostKeyChecking=no target/*.jar ec2-user@${EC2_HOST}:/home/ec2-user/app.jar
+                            
+                            echo "🔗 Connecting to EC2 and deploying application..."
+                            ssh -o StrictHostKeyChecking=no ec2-user@${EC2_HOST} "
+                                # Stop existing application
+                                pkill -f 'java -jar' || true
+                                
+                                # Install Java if not present
+                                sudo yum install java-17-amazon-corretto -y
+                                
+                                # Start application in background
+                                nohup java -jar /home/ec2-user/app.jar --server.port=${APPLICATION_PORT} > /home/ec2-user/app.log 2>&1 &
+                                
+                                # Wait for application to start
+                                sleep 30
+                                
+                                echo '✅ Application deployed successfully'
+                            "
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        Upto here ... This is applicable for JAR instead of Docker */ 
         
         // Stage 8: Verify deployment
         stage('Verify Deployment') {
