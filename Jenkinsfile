@@ -12,7 +12,7 @@ pipeline {
     environment {
         // AWS Configuration
         AWS_DEFAULT_REGION = 'us-east-1'
-        AWS_ACCOUNT_ID = '5947-1525-9894' // Replace with your AWS Account ID
+        AWS_ACCOUNT_ID = '594715259894' // Replace with your AWS Account ID
         
         // ECR Repository Configuration
         ECR_REPOSITORY = 'demo-rest-api'
@@ -225,7 +225,7 @@ pipeline {
             
             // Send success notification email (optional)
             emailext (
-                to: 'developer@example.com',
+                to: 'pswathi.kkd@gmail.com',
                 subject: '✅ Jenkins Build Success: ${JOB_NAME} - Build #${BUILD_NUMBER}',
                 body: '''
                 🎉 Great news! Your Spring Boot application has been successfully deployed to AWS.
