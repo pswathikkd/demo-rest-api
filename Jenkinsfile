@@ -9,20 +9,23 @@ pipeline {
     }
     
     // Environment variables used throughout the pipeline
+    // 🔧 MODIFY THESE VALUES FOR YOUR SETUP:
     environment {
-        // AWS Configuration
-        AWS_DEFAULT_REGION = 'us-east-1'
-        AWS_ACCOUNT_ID = '594715259894' // Replace with your AWS Account ID
+        // 📧 UPDATE: Change to your email address
+        EMAIL_RECIPIENT = 'pswathi.kkd@gmail.com'
         
-        // ECR Repository Configuration
-        ECR_REPOSITORY = 'demo-rest-api'
-        IMAGE_TAG = "${BUILD_NUMBER}"
-        DOCKER_IMAGE = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${ECR_REPOSITORY}"
+        // 🖥️ UPDATE: Replace with your actual EC2 instance details
+        EC2_HOST = 'ec2-3-89-153-73.compute-1.amazonaws.com'  // Replace with your EC2 public DNS or IP
+        EC2_USER = 'ec2-user'  // Default for Amazon Linux, change if different
         
-        // EC2 Deployment Configuration
-        EC2_HOST = 'ec2-18-206-97-176.compute-1.amazonaws.com' // Replace with your EC2 host
+        // 🚀 Application Configuration
         APPLICATION_PORT = '8080'
-        CONTAINER_NAME = 'demo-rest-api'
+        APP_NAME = 'demo-rest-api'
+        JAR_NAME = 'demo-rest-api-1.0.0.jar'
+        
+        // 📁 Deployment paths on EC2
+        DEPLOY_DIR = '/home/ec2-user/app'
+        LOG_DIR = '/home/ec2-user/logs'
     }
     
     stages {
@@ -30,226 +33,120 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo '📥 Checking out source code from GitHub...'
-                // Jenkins automatically checks out the repository based on pipeline configuration
+                // Jenkins automatically checks out the repository
                 checkout scm
                 echo '✅ Source code checkout completed'
             }
         }
         
-        // Stage 2: Compile the Spring Boot application
+        // Stage 2: Build the Spring Boot application (No Tests)
         stage('Build') {
             steps {
                 echo '🔨 Building Spring Boot application...'
-                // Compile source code without running tests (tests run in separate stage)
+                // Clean and compile source code, skip tests
                 sh 'mvn clean compile -DskipTests'
                 echo '✅ Build compilation completed successfully'
             }
         }
         
-        // Stage 3: Run unit tests
-	    stage('Test') {
-		    steps {
-		        echo '🧪 Running unit tests...'
-		        // Execute Maven test phase
-		        sh 'mvn test'
-		        echo '✅ Unit tests completed'
-		    }
-		    post {
-		        always {
-		            echo '📊 Test stage completed'
-		        }
-		    }
-		}
-        
-        // Stage 4: Package application into executable JAR
+        // Stage 3: Package application into executable JAR (No Tests)
         stage('Package') {
             steps {
                 echo '📦 Packaging application into JAR...'
-                // Create executable JAR file, skip tests as they already ran
+                // Create executable JAR file, skip tests
                 sh 'mvn package -DskipTests'
+                
+                // Verify JAR file was created
+                sh '''
+                echo "📋 Verifying JAR file creation..."
+                ls -la target/*.jar
+                echo "✅ JAR file created successfully"
+                '''
                 echo '✅ Application packaged successfully'
             }
         }
         
-        // Stage 5: Build Docker image
-        stage('Build Docker Image') {
+        // Stage 4: Deploy JAR to EC2 using Simple SSH
+        stage('Deploy to EC2') {
             steps {
-                echo '🐳 Building Docker image...'
+                echo '🚀 Deploying JAR file to AWS EC2...'
                 script {
-                    // Build Docker image with build number tag
-                    dockerImage = docker.build("${DOCKER_IMAGE}:${IMAGE_TAG}")
-                    // Also tag as 'latest' for easy reference
-                    docker.build("${DOCKER_IMAGE}:latest")
-                    echo '✅ Docker image built successfully'
-                }
-            }
-        }
-        
-        // Stage 6: Push Docker image to AWS ECR
-        stage('Push to ECR') {
-            steps {
-                echo '☁️ Pushing Docker image to AWS ECR...'
-                script {
-                    // Use AWS credentials configured in Jenkins
-                    withAWS(credentials: 'aws-credentials', region: "${AWS_DEFAULT_REGION}") {
+                    // 🔧 MODIFY: Update the SSH key credential ID to match your Jenkins configuration
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',  // 🔧 UPDATE: Your SSH key credential ID in Jenkins
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
                         sh '''
-                        echo "🔐 Authenticating with AWS ECR..."
-                        # Login to ECR registry
-                        aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
+                        echo "🔗 Connecting to EC2 instance: ${EC2_HOST}"
                         
-                        echo "📤 Pushing Docker images to ECR..."
-                        # Push both tagged and latest images
-                        docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
-                        docker push ${DOCKER_IMAGE}:latest
+                        # Set proper permissions for SSH key
+                        chmod 600 $SSH_KEY
                         
-                        echo "✅ Docker images pushed to ECR successfully"
+                        # Create directories on EC2
+                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "
+                            mkdir -p ${DEPLOY_DIR}
+                            mkdir -p ${LOG_DIR}
+                        "
+                        
+                        echo "📦 Copying JAR file to EC2..."
+                        # Copy JAR file to EC2
+                        scp -i $SSH_KEY -o StrictHostKeyChecking=no target/*.jar ${EC2_USER}@${EC2_HOST}:${DEPLOY_DIR}/${JAR_NAME}
+                        
+                        echo "🔧 Setting up and starting application on EC2..."
+                        # Deploy and start application on EC2
+                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} "
+                            # Stop existing application (if running)
+                            echo '🛑 Stopping existing application...'
+                            pkill -f 'java.*${APP_NAME}' || true
+                            sleep 5
+                            
+                            # Install Java 17 if not present
+                            echo '☕ Checking Java installation...'
+                            if ! java -version 2>&1 | grep -q '17'; then
+                                echo '📥 Installing Java 17...'
+                                sudo yum update -y
+                                sudo yum install java-17-amazon-corretto -y
+                            fi
+                            
+                            # Start application
+                            echo '▶️ Starting Spring Boot application...'
+                            cd ${DEPLOY_DIR}
+                            nohup java -jar ${JAR_NAME} \\
+                                --server.port=${APPLICATION_PORT} \\
+                                --logging.file.name=${LOG_DIR}/application.log \\
+                                > ${LOG_DIR}/startup.log 2>&1 &
+                            
+                            echo '⏳ Waiting for application to start...'
+                            sleep 30
+                            
+                            # Check if application started successfully
+                            if pgrep -f 'java.*${APP_NAME}' > /dev/null; then
+                                echo '✅ Application started successfully'
+                                echo 'Process ID:' \$(pgrep -f 'java.*${APP_NAME}')
+                            else
+                                echo '❌ Application failed to start'
+                                echo 'Checking logs...'
+                                tail -20 ${LOG_DIR}/startup.log
+                                exit 1
+                            fi
+                        "
+                        
+                        echo "✅ Deployment completed successfully"
                         '''
                     }
                 }
             }
         }
-        // Otherwise for Stage 6: we may do this below to skip Docker
-        // stage('Push to ECR') {
-        //    when {
-        //        expression { return false } // Temporarily disable ECR push
-        //    }
-        //    steps {
-        //        echo '☁️ ECR push disabled for testing...'
-        //    }
-        // }
         
-        // Stage 7: Deploy application to AWS EC2
-        stage('Deploy to EC2') {
-		    steps {
-		        echo 'Deploying application to AWS EC2...'
-		        script {
-		            withAWS(credentials: 'aws-credentials', region: "${AWS_DEFAULT_REGION}") {
-		                withCredentials([file(credentialsId: 'ec2-ssh-key-file', variable: 'SSH_KEY_FILE')]) {
-		                    sh '''
-		                    # Set proper permissions for SSH key
-		                    chmod 600 $SSH_KEY_FILE
-		                    
-		                    # Deploy using direct SSH
-		                    ssh -i $SSH_KEY_FILE -o StrictHostKeyChecking=no ec2-user@${EC2_HOST} "
-		                        echo 'Deploying application...'
-		                        # ... deployment commands ...
-		                    "
-		                    '''
-		                }
-		            }
-		        }
-		    }
-		}
-        
-        /* Alternative - because I am using SSH with Key file 
-        stage('Deploy to EC2') {
-            steps {
-                echo '🚀 Deploying application to AWS EC2...'
-                script {
-                    withAWS(credentials: 'aws-credentials', region: "${AWS_DEFAULT_REGION}") {
-                        // Use SSH agent for secure connection to EC2
-                        sshagent(['ec2-ssh-key']) {
-                            sh '''
-                            echo "🔗 Connecting to EC2 instance: ${EC2_HOST}"
-                            
-                            # Connect to EC2 and execute deployment commands
-                            ssh -o StrictHostKeyChecking=no ec2-user@${EC2_HOST} "
-                                echo '📋 Setting up Docker environment...'
-                                
-                                # Update system packages
-                                sudo yum update -y
-                                
-                                # Install Docker if not already installed
-                                sudo yum install docker -y
-                                
-                                # Start Docker service
-                                sudo systemctl start docker
-                                sudo systemctl enable docker
-                                
-                                # Add ec2-user to docker group for non-sudo access
-                                sudo usermod -a -G docker ec2-user
-                                
-                                echo '🔐 Authenticating with AWS ECR...'
-                                # Login to ECR from EC2 instance
-                                aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | sudo docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com
-                                
-                                echo '🛑 Stopping existing container...'
-                                # Stop and remove existing container (ignore errors if not exists)
-                                sudo docker stop ${CONTAINER_NAME} || true
-                                sudo docker rm ${CONTAINER_NAME} || true
-                                
-                                echo '📥 Pulling latest Docker image...'
-                                # Pull the newly built image
-                                sudo docker pull ${DOCKER_IMAGE}:${IMAGE_TAG}
-                                
-                                echo '▶️ Starting new container...'
-                                # Run new container with proper configuration
-                                sudo docker run -d \\
-                                    --name ${CONTAINER_NAME} \\
-                                    -p ${APPLICATION_PORT}:8080 \\
-                                    --restart unless-stopped \\
-                                    ${DOCKER_IMAGE}:${IMAGE_TAG}
-                                
-                                echo '🧹 Cleaning up old Docker images...'
-                                # Remove unused images to save space
-                                sudo docker image prune -f
-                                
-                                echo '✅ Deployment completed successfully'
-                            "
-                            '''
-                        }
-                    }
-                }
-            }
-        }
-        Remove upto here because I am using SSH with key file */
-        
-        // Stage 7: Deploy JAR directly to EC2 (alternative deployment)
-        /* From here ... This is applicable for JAR instead of Docker 
-        stage('Deploy JAR to EC2') {
-            steps {
-                echo '🚀 Deploying JAR file directly to AWS EC2...'
-                script {
-                    withAWS(credentials: 'aws-credentials', region: "${AWS_DEFAULT_REGION}") {
-                        sshagent(['ec2-ssh-key']) {
-                            sh '''
-                            echo "📦 Copying JAR file to EC2..."
-                            
-                            # Copy JAR file to EC2
-                            scp -o StrictHostKeyChecking=no target/*.jar ec2-user@${EC2_HOST}:/home/ec2-user/app.jar
-                            
-                            echo "🔗 Connecting to EC2 and deploying application..."
-                            ssh -o StrictHostKeyChecking=no ec2-user@${EC2_HOST} "
-                                # Stop existing application
-                                pkill -f 'java -jar' || true
-                                
-                                # Install Java if not present
-                                sudo yum install java-17-amazon-corretto -y
-                                
-                                # Start application in background
-                                nohup java -jar /home/ec2-user/app.jar --server.port=${APPLICATION_PORT} > /home/ec2-user/app.log 2>&1 &
-                                
-                                # Wait for application to start
-                                sleep 30
-                                
-                                echo '✅ Application deployed successfully'
-                            "
-                            '''
-                        }
-                    }
-                }
-            }
-        }
-        Upto here ... This is applicable for JAR instead of Docker */ 
-        
-        // Stage 8: Verify deployment
+        // Stage 5: Verify deployment by testing endpoints
         stage('Verify Deployment') {
             steps {
                 echo '✅ Verifying application deployment...'
                 script {
-                    // Wait for application to fully start
-                    echo '⏳ Waiting for application to start (30 seconds)...'
-                    sleep(30)
+                    // Wait a bit more for application to be fully ready
+                    echo '⏳ Waiting for application to be fully ready...'
+                    sleep(20)
                     
                     // Test application endpoints
                     sh '''
@@ -257,32 +154,49 @@ pipeline {
                     
                     # Test welcome endpoint
                     echo "Testing /api/v1/welcome endpoint..."
-                    curl -f -s http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/welcome || (echo "❌ Welcome endpoint failed" && exit 1)
-                    echo "✅ Welcome endpoint working"
+                    if curl -f -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/welcome; then
+                        echo "✅ Welcome endpoint working"
+                    else
+                        echo "❌ Welcome endpoint failed"
+                        exit 1
+                    fi
                     
                     # Test info endpoint
                     echo "Testing /api/v1/info endpoint..."
-                    curl -f -s http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/info || (echo "❌ Info endpoint failed" && exit 1)
-                    echo "✅ Info endpoint working"
+                    if curl -f -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/info; then
+                        echo "✅ Info endpoint working"
+                    else
+                        echo "❌ Info endpoint failed"
+                        exit 1
+                    fi
                     
                     # Test users endpoint
                     echo "Testing /api/v1/users endpoint..."
-                    curl -f -s http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/users || (echo "❌ Users endpoint failed" && exit 1)
-                    echo "✅ Users endpoint working"
+                    if curl -f -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/users; then
+                        echo "✅ Users endpoint working"
+                    else
+                        echo "❌ Users endpoint failed"
+                        exit 1
+                    fi
                     
                     # Test version endpoint
                     echo "Testing /api/v1/version endpoint..."
-                    curl -f -s http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/version || (echo "❌ Version endpoint failed" && exit 1)
-                    echo "✅ Version endpoint working"
+                    if curl -f -s --max-time 10 http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/version; then
+                        echo "✅ Version endpoint working"
+                    else
+                        echo "❌ Version endpoint failed"
+                        exit 1
+                    fi
                     
                     echo "🎉 All endpoints are working correctly!"
+                    echo "🌐 Application is accessible at: http://${EC2_HOST}:${APPLICATION_PORT}"
                     '''
                 }
             }
         }
     }
     
-    // Post-build actions that run regardless of build result
+    // Post-build actions
     post {
         // Always clean workspace after build
         always {
@@ -292,50 +206,84 @@ pipeline {
         
         // Actions for successful builds
         success {
-            echo '🎉 Pipeline succeeded! Application deployed successfully to AWS.'
+            echo '🎉 Pipeline succeeded! Application deployed successfully.'
             
-            // Send success notification email (optional)
-            emailext (
-                to: 'pswathi.kkd@gmail.com',
-                subject: '✅ Jenkins Build Success: ${JOB_NAME} - Build #${BUILD_NUMBER}',
-                body: '''
-                🎉 Great news! Your Spring Boot application has been successfully deployed to AWS.
-                
-                📋 Build Details:
-                • Project: ${JOB_NAME}
-                • Build Number: ${BUILD_NUMBER}
-                • Git Commit: ${GIT_COMMIT}
-                • Build URL: ${BUILD_URL}
-                
-                🌐 Application Access:
-                • Application URL: http://your-ec2-host:8080/api/v1/welcome
-                • Version Info: http://your-ec2-host:8080/api/v1/version
-                
-                ✅ All endpoints are verified and working correctly.
-                '''.stripIndent()
-            )
+            // Send success email notification
+            script {
+                try {
+                    emailext (
+                        // 📧 Email will be sent to the address specified in EMAIL_RECIPIENT
+                        to: "${EMAIL_RECIPIENT}",
+                        subject: '✅ Jenkins Build Success: ${JOB_NAME} - Build #${BUILD_NUMBER}',
+                        mimeType: 'text/html',
+                        body: """
+                        <h2>🎉 Build Successful!</h2>
+                        <p>Your Spring Boot application has been successfully deployed.</p>
+                        
+                        <h3>📋 Build Details:</h3>
+                        <ul>
+                            <li><strong>Project:</strong> ${JOB_NAME}</li>
+                            <li><strong>Build Number:</strong> ${BUILD_NUMBER}</li>
+                            <li><strong>Git Commit:</strong> ${GIT_COMMIT}</li>
+                            <li><strong>Build URL:</strong> <a href="${BUILD_URL}">${BUILD_URL}</a></li>
+                        </ul>
+                        
+                        <h3>🌐 Application Access:</h3>
+                        <ul>
+                            <li><strong>Welcome:</strong> <a href="http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/welcome">http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/welcome</a></li>
+                            <li><strong>Users:</strong> <a href="http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/users">http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/users</a></li>
+                            <li><strong>Version:</strong> <a href="http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/version">http://${EC2_HOST}:${APPLICATION_PORT}/api/v1/version</a></li>
+                        </ul>
+                        
+                        <p>✅ All endpoints have been verified and are working correctly.</p>
+                        """
+                    )
+                    echo "📧 Success email sent to ${EMAIL_RECIPIENT}"
+                } catch (Exception e) {
+                    echo "⚠️ Email notification failed: ${e.message}"
+                }
+            }
         }
         
         // Actions for failed builds
         failure {
             echo '❌ Pipeline failed! Check the logs for details.'
             
-            // Send failure notification email (optional)
-            emailext (
-                to: 'developer@example.com',
-                subject: '❌ Jenkins Build Failed: ${JOB_NAME} - Build #${BUILD_NUMBER}',
-                body: '''
-                ❌ Build failed for your Spring Boot application deployment.
-                
-                📋 Build Details:
-                • Project: ${JOB_NAME}
-                • Build Number: ${BUILD_NUMBER}
-                • Git Commit: ${GIT_COMMIT}
-                • Build Logs: ${BUILD_URL}console
-                
-                🔍 Please check the build logs for detailed error information.
-                '''.stripIndent()
-            )
+            // Send failure email notification
+            script {
+                try {
+                    emailext (
+                        // 📧 Email will be sent to the address specified in EMAIL_RECIPIENT
+                        to: "${EMAIL_RECIPIENT}",
+                        subject: '❌ Jenkins Build Failed: ${JOB_NAME} - Build #${BUILD_NUMBER}',
+                        mimeType: 'text/html',
+                        body: """
+                        <h2>❌ Build Failed!</h2>
+                        <p>Your Spring Boot application deployment has failed.</p>
+                        
+                        <h3>📋 Build Details:</h3>
+                        <ul>
+                            <li><strong>Project:</strong> ${JOB_NAME}</li>
+                            <li><strong>Build Number:</strong> ${BUILD_NUMBER}</li>
+                            <li><strong>Git Commit:</strong> ${GIT_COMMIT}</li>
+                            <li><strong>Build Logs:</strong> <a href="${BUILD_URL}console">${BUILD_URL}console</a></li>
+                        </ul>
+                        
+                        <p>🔍 Please check the build logs for detailed error information.</p>
+                        <p>Common issues to check:</p>
+                        <ul>
+                            <li>SSH connection to EC2 instance</li>
+                            <li>Java installation on EC2</li>
+                            <li>Port 8080 availability</li>
+                            <li>Security group settings</li>
+                        </ul>
+                        """
+                    )
+                    echo "📧 Failure email sent to ${EMAIL_RECIPIENT}"
+                } catch (Exception e) {
+                    echo "⚠️ Email notification failed: ${e.message}"
+                }
+            }
         }
     }
 }
